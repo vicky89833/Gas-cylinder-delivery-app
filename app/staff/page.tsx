@@ -1,49 +1,71 @@
- 
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 
 export default function User() {
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const markersRef = useRef<google.maps.Marker[]>([]);
 
   useEffect(() => {
     if (!mapRef.current || typeof window === "undefined") return;
 
-    // Initialize Google Map
     const initMap = () => {
       const map = new window.google.maps.Map(mapRef.current!, {
         center: { lat: 28.6139, lng: 77.2090 }, // Default to New Delhi
         zoom: 12,
       });
 
-      // Example: WebSocket receiving coordinates
-      const socket = new WebSocket("wss://your-socket-server-url");
+      // Initialize WebSocket connection
+      socketRef.current = new WebSocket("wss://your-socket-server-url");
 
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        const { latitude, longitude } = data;
+      socketRef.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const { latitude, longitude } = data;
 
-        new window.google.maps.Marker({
-          position: { lat: latitude, lng: longitude },
-          map,
-          title: "Current Delivery Location",
-        });
+          // Clear previous markers
+          markersRef.current.forEach(marker => marker.setMap(null));
+          markersRef.current = [];
 
-        map.setCenter({ lat: latitude, lng: longitude });
+          // Add new marker
+          const marker = new window.google.maps.Marker({
+            position: { lat: latitude, lng: longitude },
+            map,
+            title: "Current Delivery Location",
+          });
+
+          markersRef.current.push(marker);
+          map.setCenter({ lat: latitude, lng: longitude });
+        } catch (error) {
+          console.error("Error processing WebSocket message:", error);
+        }
+      };
+
+      socketRef.current.onerror = (error) => {
+        console.error("WebSocket error:", error);
       };
     };
 
     if (!window.google?.maps) {
       const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`;
       script.async = true;
       script.onload = initMap;
+      script.onerror = () => console.error("Google Maps script failed to load");
       document.head.appendChild(script);
     } else {
       initMap();
     }
+
+    // Cleanup function
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      markersRef.current.forEach(marker => marker.setMap(null));
+    };
   }, []);
 
   return (
@@ -58,9 +80,7 @@ export default function User() {
         <div
           ref={mapRef}
           className="w-full h-[400px] rounded-lg shadow-lg border border-gray-300"
-        >
-          {/* Google Map will be rendered here */}
-        </div>
+        />
       </main>
 
       {/* Footer */}
